@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from procrastinate import (
     app,
+    canvas_coordinator,
     exceptions,
     job_context,
     jobs,
@@ -320,6 +321,27 @@ class Worker:
             except asyncio.CancelledError:
                 await persist_job_status_task
                 raise
+
+            # Handle canvas workflow coordination after successful job completion
+            if status == jobs.Status.SUCCEEDED:
+                try:
+                    await canvas_coordinator.handle_canvas_completion(
+                        job=job,
+                        job_result=job_result,
+                        procrastinate_app=self.app,
+                    )
+                except Exception as e:
+                    self.logger.exception(
+                        f"Canvas coordination failed for job {job.id}",
+                        extra=self._log_extra(
+                            context=context,
+                            action="canvas_coordination_failed",
+                            exception=str(e),
+                            job_result=job_result,
+                        ),
+                    )
+                    # Don't fail the job if canvas coordination fails
+                    # The job itself succeeded, coordination is a separate concern
 
     async def _fetch_and_process_jobs(self):
         """Fetch and process jobs until there is no job left or asked to stop"""

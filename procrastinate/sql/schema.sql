@@ -78,6 +78,18 @@ CREATE TABLE procrastinate_events (
     at timestamp with time zone DEFAULT NOW() NULL
 );
 
+CREATE TABLE procrastinate_canvas_chords (
+    chord_id character varying(128) PRIMARY KEY,
+    header_size integer NOT NULL,
+    completed_count integer DEFAULT 0 NOT NULL,
+    results jsonb DEFAULT '[]' NOT NULL,
+    callback_task_name character varying(128) NOT NULL,
+    callback_kwargs jsonb DEFAULT '{}' NOT NULL,
+    callback_options jsonb DEFAULT '{}' NOT NULL,
+    created_at timestamp with time zone DEFAULT NOW() NOT NULL,
+    CONSTRAINT check_completed_lte_size CHECK (completed_count <= header_size)
+);
+
 -- Constraints & Indices
 
 -- this prevents from having several jobs with the same queueing lock in the "todo" state
@@ -97,6 +109,8 @@ CREATE INDEX procrastinate_events_job_id_fkey_v1 ON procrastinate_events(job_id)
 CREATE INDEX procrastinate_periodic_defers_job_id_fkey_v1 ON procrastinate_periodic_defers(job_id);
 
 CREATE INDEX idx_procrastinate_workers_last_heartbeat ON procrastinate_workers(last_heartbeat);
+
+CREATE INDEX procrastinate_canvas_chords_created_at_idx ON procrastinate_canvas_chords(created_at);
 
 -- Functions
 CREATE FUNCTION procrastinate_defer_jobs_v1(

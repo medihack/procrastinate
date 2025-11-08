@@ -3,6 +3,7 @@ from __future__ import annotations
 from procrastinate import metadata as _metadata_module
 from procrastinate.app import App
 from procrastinate.blueprints import Blueprint
+from procrastinate.canvas import Chain, Chord, Group, Signature, chain, chord, group
 from procrastinate.connector import BaseConnector
 from procrastinate.job_context import JobContext
 from procrastinate.psycopg_connector import PsycopgConnector
@@ -24,11 +25,18 @@ __all__ = [
     "BaseConnector",
     "BaseRetryStrategy",
     "Blueprint",
+    "Chain",
+    "Chord",
+    "Group",
     "JobContext",
     "PsycopgConnector",
     "RetryDecision",
     "RetryStrategy",
+    "Signature",
     "SyncPsycopgConnector",
+    "chain",
+    "chord",
+    "group",
 ]
 
 

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import Callable, Generic, TypedDict, cast
+from typing import TYPE_CHECKING, Callable, Generic, TypedDict, cast
 
 from typing_extensions import NotRequired, ParamSpec, TypeVar, Unpack
 
 from procrastinate import app as app_module
 from procrastinate import blueprints, exceptions, jobs, manager, types, utils
 from procrastinate import retry as retry_module
+
+if TYPE_CHECKING:
+    from procrastinate import canvas as canvas_module
 
 logger = logging.getLogger(__name__)
 
@@ -241,3 +244,58 @@ class Task(Generic[P, R, Args]):
             return None
 
         return self.retry_strategy.get_retry_exception(exception=exception, job=job)
+
+    def signature(
+        self, *_: Args.args, **kwargs: Args.kwargs
+    ) -> canvas_module.Signature:
+        """
+        Create a signature for this task with the given arguments.
+
+        A signature is a frozen task call that can be used to compose workflows
+        with chains, groups, and chords.
+
+        Parameters
+        ----------
+        **kwargs
+            Keyword arguments for the task
+
+        Returns
+        -------
+        Signature
+            A signature object that can be applied or composed with other signatures
+
+        Examples
+        --------
+        >>> sig = task.signature(x=1, y=2)
+        >>> await sig.apply_async()
+
+        >>> # Create a chain
+        >>> chain = task1.signature(x=1) | task2.signature() | task3.signature()
+        >>> await chain.apply_async()
+        """
+        from procrastinate import canvas as canvas_module
+
+        return canvas_module.Signature(task=self, kwargs=kwargs)
+
+    def s(self, *_: Args.args, **kwargs: Args.kwargs) -> canvas_module.Signature:
+        """
+        Shorthand for creating a signature.
+
+        This is an alias for `Task.signature()`.
+
+        Parameters
+        ----------
+        **kwargs
+            Keyword arguments for the task
+
+        Returns
+        -------
+        Signature
+            A signature object
+
+        Examples
+        --------
+        >>> sig = task.s(x=1, y=2)
+        >>> chain = task1.s(x=1) | task2.s() | task3.s()
+        """
+        return self.signature(**kwargs)
