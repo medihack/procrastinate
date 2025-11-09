@@ -26,6 +26,7 @@ class ConfigureTaskOptions(TypedDict):
     schedule_in: NotRequired[types.TimeDeltaParams | None]
     queue: NotRequired[str | None]
     priority: NotRequired[int | None]
+    depends_on: NotRequired[list[int] | None]
 
 
 def configure_task(
@@ -48,6 +49,7 @@ def configure_task(
         priority = jobs.DEFAULT_PRIORITY
 
     task_kwargs = options.get("task_kwargs") or {}
+    depends_on = options.get("depends_on") or []
     return jobs.JobDeferrer(
         job=jobs.Job(
             id=None,
@@ -58,6 +60,7 @@ def configure_task(
             task_kwargs=task_kwargs,
             scheduled_at=schedule_at,
             priority=priority,
+            depends_on=depends_on,
         ),
         job_manager=job_manager,
     )
@@ -198,6 +201,10 @@ class Task(Generic[P, R, Args]):
             Set the priority of the job as an integer. Jobs with higher priority
             are run first. Priority can be positive or negative. The default priority
             is 0.
+        depends_on :
+            A list of job IDs that must complete successfully before this job can run.
+            The job will remain in the queue but won't be fetched by workers until all
+            parent jobs have status 'succeeded'.
 
         Returns
         -------
@@ -218,6 +225,7 @@ class Task(Generic[P, R, Args]):
         schedule_in = options.get("schedule_in")
         queue = options.get("queue")
         priority = options.get("priority")
+        depends_on = options.get("depends_on")
 
         app = cast(app_module.App, self.blueprint)
         return configure_task(
@@ -232,6 +240,7 @@ class Task(Generic[P, R, Args]):
             schedule_in=schedule_in,
             queue=queue if queue is not None else self.queue,
             priority=priority if priority is not None else self.priority,
+            depends_on=depends_on,
         )
 
     def get_retry_exception(

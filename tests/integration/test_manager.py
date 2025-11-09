@@ -855,3 +855,156 @@ async def test_list_tasks(fixture_jobs, pg_job_manager, kwargs, expected):
     assert [
         e["name"] for e in await pg_job_manager.list_tasks_async(**kwargs)
     ] == expected
+
+
+async def test_defer_job_with_dependencies(
+    pg_job_manager, deferred_job_factory, get_all
+):
+    """Test deferring a job with dependencies."""
+    # Defer parent jobs
+    parent_job_1 = await deferred_job_factory(task_name="parent_task_1")
+    parent_job_2 = await deferred_job_factory(task_name="parent_task_2")
+
+    # Defer a child job that depends on both parent jobs
+    child_job = await deferred_job_factory(
+        task_name="child_task", depends_on=[parent_job_1.id, parent_job_2.id]
+    )
+
+    # Verify the job was created
+    assert child_job.id is not None
+    assert child_job.depends_on == [parent_job_1.id, parent_job_2.id]
+
+    # Verify dependencies were recorded in the database
+    dependencies = await get_all(
+        "procrastinate_job_dependencies", "job_id", "depends_on_job_id"
+    )
+    assert len(dependencies) == 2
+    assert {
+        "job_id": child_job.id,
+        "depends_on_job_id": parent_job_1.id,
+    } in dependencies
+    assert {
+        "job_id": child_job.id,
+        "depends_on_job_id": parent_job_2.id,
+    } in dependencies
+
+
+async def test_fetch_job_with_unfulfilled_dependencies(
+    pg_job_manager, deferred_job_factory, worker_id
+):
+    """Test that jobs with unfulfilled dependencies cannot be fetched."""
+    # Defer a parent job
+    parent_job = await deferred_job_factory(task_name="parent_task")
+
+    # Defer a child job that depends on the parent
+    await deferred_job_factory(task_name="child_task", depends_on=[parent_job.id])
+
+    # Try to fetch a job - should get the parent job, not the child
+    fetched_job = await pg_job_manager.fetch_job(queues=None, worker_id=worker_id)
+    assert fetched_job is not None
+    assert fetched_job.id == parent_job.id
+    assert fetched_job.task_name == "parent_task"
+
+    # Try to fetch another job - should get nothing since child can't run yet
+    fetched_job = await pg_job_manager.fetch_job(queues=None, worker_id=worker_id)
+    assert fetched_job is None
+
+
+async def test_fetch_job_with_fulfilled_dependencies(
+    pg_job_manager, deferred_job_factory, worker_id
+):
+    """Test that jobs can be fetched after their dependencies are fulfilled."""
+    # Defer parent jobs
+    parent_job_1 = await deferred_job_factory(task_name="parent_task_1")
+    parent_job_2 = await deferred_job_factory(task_name="parent_task_2")
+
+    # Defer a child job that depends on both parents
+    child_job = await deferred_job_factory(
+        task_name="child_task", depends_on=[parent_job_1.id, parent_job_2.id]
+    )
+
+    # Complete first parent job
+    fetched_parent_1 = await pg_job_manager.fetch_job(queues=None, worker_id=worker_id)
+    assert fetched_parent_1.id == parent_job_1.id
+    await pg_job_manager.finish_job_async(
+        job=fetched_parent_1, status=jobs.Status.SUCCEEDED, delete_job=False
+    )
+
+    # Child should still not be fetchable (second parent not done)
+    fetched_parent_2 = await pg_job_manager.fetch_job(queues=None, worker_id=worker_id)
+    assert fetched_parent_2.id == parent_job_2.id
+
+    # Complete second parent job
+    await pg_job_manager.finish_job_async(
+        job=fetched_parent_2, status=jobs.Status.SUCCEEDED, delete_job=False
+    )
+
+    # Now child should be fetchable
+    fetched_child = await pg_job_manager.fetch_job(queues=None, worker_id=worker_id)
+    assert fetched_child is not None
+    assert fetched_child.id == child_job.id
+    assert fetched_child.task_name == "child_task"
+
+
+async def test_fetch_job_dependency_failed_parent(
+    pg_job_manager, deferred_job_factory, worker_id
+):
+    """Test that child jobs are not fetched when parent jobs fail."""
+    # Defer a parent job
+    parent_job = await deferred_job_factory(task_name="parent_task")
+
+    # Defer a child job that depends on the parent
+    await deferred_job_factory(task_name="child_task", depends_on=[parent_job.id])
+
+    # Fetch and fail the parent job
+    fetched_parent = await pg_job_manager.fetch_job(queues=None, worker_id=worker_id)
+    assert fetched_parent.id == parent_job.id
+    await pg_job_manager.finish_job_async(
+        job=fetched_parent, status=jobs.Status.FAILED, delete_job=False
+    )
+
+    # Child job should not be fetchable because parent failed
+    fetched_job = await pg_job_manager.fetch_job(queues=None, worker_id=worker_id)
+    assert fetched_job is None
+
+
+async def test_batch_defer_jobs_with_dependencies(
+    pg_job_manager, job_factory, get_all
+):
+    """Test batch deferring jobs with dependencies."""
+    # First defer some parent jobs
+    parent_jobs = await pg_job_manager.batch_defer_jobs_async(
+        jobs=[
+            job_factory(task_name="parent_1"),
+            job_factory(task_name="parent_2"),
+        ]
+    )
+
+    # Now defer child jobs with dependencies
+    child_jobs = await pg_job_manager.batch_defer_jobs_async(
+        jobs=[
+            job_factory(task_name="child_1", depends_on=[parent_jobs[0].id]),
+            job_factory(
+                task_name="child_2",
+                depends_on=[parent_jobs[0].id, parent_jobs[1].id],
+            ),
+        ]
+    )
+
+    # Verify dependencies were recorded
+    dependencies = await get_all(
+        "procrastinate_job_dependencies", "job_id", "depends_on_job_id"
+    )
+    assert len(dependencies) == 3
+    assert {
+        "job_id": child_jobs[0].id,
+        "depends_on_job_id": parent_jobs[0].id,
+    } in dependencies
+    assert {
+        "job_id": child_jobs[1].id,
+        "depends_on_job_id": parent_jobs[0].id,
+    } in dependencies
+    assert {
+        "job_id": child_jobs[1].id,
+        "depends_on_job_id": parent_jobs[1].id,
+    } in dependencies

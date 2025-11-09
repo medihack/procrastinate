@@ -76,10 +76,21 @@ class JobManager:
         except exceptions.UniqueViolation as exc:
             self._raise_already_enqueued(exc=exc, queueing_lock=exc.queueing_lock)
 
-        return [
+        deferred_jobs = [
             job.evolve(id=results[index]["id"], status=jobs_module.Status.TODO.value)
             for index, job in enumerate(jobs)
         ]
+
+        # Set job dependencies if any
+        for job in deferred_jobs:
+            if job.depends_on:
+                await self.connector.execute_query_async(
+                    query=sql.queries["set_job_dependencies"],
+                    job_id=job.id,
+                    depends_on=job.depends_on,
+                )
+
+        return deferred_jobs
 
     def defer_job(self, job: jobs_module.Job) -> jobs_module.Job:
         """
@@ -98,10 +109,21 @@ class JobManager:
         except exceptions.UniqueViolation as exc:
             self._raise_already_enqueued(exc=exc, queueing_lock=exc.queueing_lock)
 
-        return [
+        deferred_jobs = [
             job.evolve(id=results[index]["id"], status=jobs_module.Status.TODO.value)
             for index, job in enumerate(jobs)
         ]
+
+        # Set job dependencies if any
+        for job in deferred_jobs:
+            if job.depends_on:
+                self.connector.get_sync_connector().execute_query(
+                    query=sql.queries["set_job_dependencies"],
+                    job_id=job.id,
+                    depends_on=job.depends_on,
+                )
+
+        return deferred_jobs
 
     def _defer_jobs_query_kwargs(self, jobs: list[jobs_module.Job]) -> dict[str, Any]:
         return {

@@ -235,3 +235,13 @@ SELECT procrastinate_update_heartbeat_v1(%(worker_id)s)
 -- prune_stalled_workers --
 -- Delete stalled workers that haven't sent a heartbeat in a while
 SELECT * FROM procrastinate_prune_stalled_workers_v1(%(seconds_since_heartbeat)s)
+
+-- set_job_dependencies --
+-- Set job dependencies for a single job
+INSERT INTO procrastinate_job_dependencies (job_id, depends_on_job_id)
+SELECT %(job_id)s, unnest(%(depends_on)s::bigint[])
+
+-- get_job_dependencies --
+-- Get all job IDs that a given job depends on
+SELECT depends_on_job_id FROM procrastinate_job_dependencies
+WHERE job_id = %(job_id)s

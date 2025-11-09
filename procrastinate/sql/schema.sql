@@ -78,6 +78,13 @@ CREATE TABLE procrastinate_events (
     at timestamp with time zone DEFAULT NOW() NULL
 );
 
+CREATE TABLE procrastinate_job_dependencies (
+    job_id bigint NOT NULL REFERENCES procrastinate_jobs(id) ON DELETE CASCADE,
+    depends_on_job_id bigint NOT NULL REFERENCES procrastinate_jobs(id) ON DELETE CASCADE,
+    PRIMARY KEY (job_id, depends_on_job_id),
+    CONSTRAINT no_self_dependency CHECK (job_id != depends_on_job_id)
+);
+
 -- Constraints & Indices
 
 -- this prevents from having several jobs with the same queueing lock in the "todo" state
@@ -97,6 +104,9 @@ CREATE INDEX procrastinate_events_job_id_fkey_v1 ON procrastinate_events(job_id)
 CREATE INDEX procrastinate_periodic_defers_job_id_fkey_v1 ON procrastinate_periodic_defers(job_id);
 
 CREATE INDEX idx_procrastinate_workers_last_heartbeat ON procrastinate_workers(last_heartbeat);
+
+CREATE INDEX procrastinate_job_dependencies_depends_on_idx ON procrastinate_job_dependencies(depends_on_job_id);
+CREATE INDEX procrastinate_job_dependencies_job_id_idx ON procrastinate_job_dependencies(job_id);
 
 -- Functions
 CREATE FUNCTION procrastinate_defer_jobs_v1(
@@ -228,6 +238,16 @@ BEGIN
                                     )
                                 )
                             )
+                )
+                -- reject the job if it has dependencies that haven't completed successfully
+                AND NOT EXISTS (
+                    SELECT 1
+                        FROM procrastinate_job_dependencies AS deps
+                        INNER JOIN procrastinate_jobs AS parent_jobs
+                            ON deps.depends_on_job_id = parent_jobs.id
+                        WHERE
+                            deps.job_id = jobs.id
+                            AND parent_jobs.status != 'succeeded'
                 )
                 AND jobs.status = 'todo'
                 AND (target_queue_names IS NULL OR jobs.queue_name = ANY( target_queue_names ))

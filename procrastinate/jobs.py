@@ -100,6 +100,8 @@ class Job:
     abort_requested: bool = False
     #: ID of the worker that is processing the job
     worker_id: int | None = None
+    #: List of job IDs that this job depends on (must complete successfully before this job runs)
+    depends_on: list[int] = attr.ib(factory=list)
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> Job:
