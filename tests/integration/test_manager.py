@@ -949,12 +949,14 @@ async def test_fetch_job_with_fulfilled_dependencies(
 async def test_fetch_job_dependency_failed_parent(
     pg_job_manager, deferred_job_factory, worker_id
 ):
-    """Test that child jobs are not fetched when parent jobs fail."""
+    """Test that child jobs CAN be fetched when parent jobs finish with any terminal status."""
     # Defer a parent job
     parent_job = await deferred_job_factory(task_name="parent_task")
 
     # Defer a child job that depends on the parent
-    await deferred_job_factory(task_name="child_task", depends_on=[parent_job.id])
+    child_job = await deferred_job_factory(
+        task_name="child_task", depends_on=[parent_job.id]
+    )
 
     # Fetch and fail the parent job
     fetched_parent = await pg_job_manager.fetch_job(queues=None, worker_id=worker_id)
@@ -963,7 +965,24 @@ async def test_fetch_job_dependency_failed_parent(
         job=fetched_parent, status=jobs.Status.FAILED, delete_job=False
     )
 
-    # Child job should not be fetchable because parent failed
+    # Child job SHOULD now be fetchable even though parent failed
+    # (the job can check parent status and handle it accordingly)
+    fetched_job = await pg_job_manager.fetch_job(queues=None, worker_id=worker_id)
+    assert fetched_job is not None
+    assert fetched_job.id == child_job.id
+
+
+async def test_fetch_job_with_still_running_dependency(
+    pg_job_manager, deferred_job_factory, fetched_job_factory, worker_id
+):
+    """Test that child jobs cannot be fetched while parent is still running."""
+    # Defer and fetch a parent job (status will be 'doing')
+    parent_job = await fetched_job_factory(task_name="parent_task")
+
+    # Defer a child job that depends on the parent
+    await deferred_job_factory(task_name="child_task", depends_on=[parent_job.id])
+
+    # Child should NOT be fetchable because parent is still running (status='doing')
     fetched_job = await pg_job_manager.fetch_job(queues=None, worker_id=worker_id)
     assert fetched_job is None
 

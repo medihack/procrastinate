@@ -239,7 +239,8 @@ BEGIN
                                 )
                             )
                 )
-                -- reject the job if it has dependencies that haven't completed successfully
+                -- reject the job if it has dependencies that haven't finished
+                -- (finished means any terminal status: succeeded, failed, cancelled, aborted)
                 AND NOT EXISTS (
                     SELECT 1
                         FROM procrastinate_job_dependencies AS deps
@@ -247,7 +248,7 @@ BEGIN
                             ON deps.depends_on_job_id = parent_jobs.id
                         WHERE
                             deps.job_id = jobs.id
-                            AND parent_jobs.status != 'succeeded'
+                            AND parent_jobs.status NOT IN ('succeeded', 'failed', 'cancelled', 'aborted')
                 )
                 AND jobs.status = 'todo'
                 AND (target_queue_names IS NULL OR jobs.queue_name = ANY( target_queue_names ))

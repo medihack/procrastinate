@@ -202,9 +202,11 @@ class Task(Generic[P, R, Args]):
             are run first. Priority can be positive or negative. The default priority
             is 0.
         depends_on :
-            A list of job IDs that must complete successfully before this job can run.
-            The job will remain in the queue but won't be fetched by workers until all
-            parent jobs have status 'succeeded'.
+            A list of job IDs that must finish before this job can run. The job will
+            remain in the queue but won't be fetched by workers until all parent jobs
+            have reached a terminal status (succeeded, failed, cancelled, or aborted).
+            Use ``context.get_parent_statuses_async()`` within your task to check parent
+            job outcomes and handle failures appropriately.
 
         Returns
         -------

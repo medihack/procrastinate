@@ -245,3 +245,12 @@ SELECT %(job_id)s, unnest(%(depends_on)s::bigint[])
 -- Get all job IDs that a given job depends on
 SELECT depends_on_job_id FROM procrastinate_job_dependencies
 WHERE job_id = %(job_id)s
+
+-- get_parent_job_statuses --
+-- Get the status of all parent jobs for a given job
+SELECT parent_jobs.id, parent_jobs.status, parent_jobs.task_name
+FROM procrastinate_job_dependencies AS deps
+INNER JOIN procrastinate_jobs AS parent_jobs
+    ON deps.depends_on_job_id = parent_jobs.id
+WHERE deps.job_id = %(job_id)s
+ORDER BY parent_jobs.id

@@ -4,12 +4,13 @@ This demo shows how to use job dependencies in Procrastinate to create workflows
 
 ## What are Job Dependencies?
 
-Job dependencies allow you to specify that a job should only run after one or more parent jobs have completed successfully. This is useful for:
+Job dependencies allow you to specify that a job should only run after one or more parent jobs have **finished** (in any terminal status: succeeded, failed, cancelled, or aborted). This is useful for:
 
 - Data processing pipelines
 - Multi-step workflows
 - Tasks that depend on the output of previous tasks
 - Orchestrating complex job sequences
+- Error handling workflows where you need to react to parent job failures
 
 ## How to Use
 
@@ -56,9 +57,32 @@ job_c_id = await task_c.configure(
 
 You'll see the jobs execute in the correct order, with each job waiting for its dependencies to complete.
 
+## Checking Parent Job Status
+
+Jobs can check the status of their parent jobs to decide how to proceed:
+
+```python
+@app.task(pass_context=True)
+async def process_data(context):
+    # Get parent job statuses
+    parent_statuses = await context.get_parent_statuses_async()
+
+    # Check if all parents succeeded
+    if all(status == 'succeeded' for status in parent_statuses.values()):
+        # All dependencies completed successfully
+        await process_normally()
+    else:
+        # Some parent jobs failed
+        failed_jobs = [job_id for job_id, status in parent_statuses.items()
+                       if status == 'failed']
+        logger.warning(f"Parent jobs {failed_jobs} failed, handling gracefully")
+        await handle_partial_failure()
+```
+
 ## Key Behavior
 
-- **Jobs with unfulfilled dependencies**: Will remain in the queue but won't be picked up by workers
-- **Failed parent jobs**: If a parent job fails, child jobs will never run
+- **Jobs with unfulfilled dependencies**: Will remain in the queue but won't be picked up by workers until all parent jobs reach a terminal status (succeeded, failed, cancelled, or aborted)
+- **Running parent jobs**: Child jobs will NOT run while any parent job is still in 'todo' or 'doing' status
+- **Failed parent jobs**: Child jobs WILL run even if parent jobs failed - the child job should check parent statuses and handle failures appropriately
 - **Multiple workers**: Dependencies work correctly even with multiple workers running concurrently
 - **Cascade on delete**: If a parent or child job is deleted, the dependency relationship is automatically cleaned up
