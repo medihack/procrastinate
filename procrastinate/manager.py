@@ -537,6 +537,9 @@ class JobManager:
         *,
         on_notification: NotificationCallback,
         queues: Iterable[str] | None = None,
+        reconnect_interval: float = 2.0,
+        max_reconnect_interval: float = 60.0,
+        max_reconnect_attempts: int = 0,
     ) -> None:
         """
         Listens to job notifications from the database, and invokes the callback each time an
@@ -553,6 +556,15 @@ class JobManager:
             If ``None``, all notification will be considered. If an iterable of
             queue names is passed, only defer operations on those queues will be
             considered. Defaults to ``None``
+        reconnect_interval : ``float``
+            Initial delay in seconds before reconnecting after a connection failure.
+            Defaults to 2.0
+        max_reconnect_interval : ``float``
+            Maximum delay in seconds between reconnection attempts (exponential backoff cap).
+            Defaults to 60.0
+        max_reconnect_attempts : ``int``
+            Maximum number of reconnection attempts before giving up. 0 means unlimited.
+            Defaults to 0 (unlimited)
         """
 
         async def handle_notification(channel: str, payload: str):
@@ -566,6 +578,9 @@ class JobManager:
         await self.connector.listen_notify(
             on_notification=handle_notification,
             channels=get_channel_for_queues(queues=queues),
+            reconnect_interval=reconnect_interval,
+            max_reconnect_interval=max_reconnect_interval,
+            max_reconnect_attempts=max_reconnect_attempts,
         )
 
     async def check_connection_async(self) -> bool:

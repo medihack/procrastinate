@@ -42,6 +42,9 @@ class Worker:
         abort_job_polling_interval: float = ABORT_JOB_POLLING_INTERVAL,
         shutdown_graceful_timeout: float | None = None,
         listen_notify: bool = True,
+        listen_notify_reconnect_interval: float = 2.0,
+        listen_notify_max_reconnect_interval: float = 60.0,
+        listen_notify_max_reconnect_attempts: int = 0,
         delete_jobs: str | jobs.DeleteJobCondition | None = None,
         additional_context: dict[str, Any] | None = None,
         install_signal_handlers: bool = True,
@@ -56,6 +59,9 @@ class Worker:
         self.fetch_job_polling_interval = fetch_job_polling_interval
         self.abort_job_polling_interval = abort_job_polling_interval
         self.listen_notify = listen_notify
+        self.listen_notify_reconnect_interval = listen_notify_reconnect_interval
+        self.listen_notify_max_reconnect_interval = listen_notify_max_reconnect_interval
+        self.listen_notify_max_reconnect_attempts = listen_notify_max_reconnect_attempts
         self.delete_jobs = (
             jobs.DeleteJobCondition(delete_jobs)
             if isinstance(delete_jobs, str)
@@ -541,6 +547,9 @@ class Worker:
             listener_coro = self.app.job_manager.listen_for_jobs(
                 on_notification=self._handle_notification,
                 queues=self.queues,
+                reconnect_interval=self.listen_notify_reconnect_interval,
+                max_reconnect_interval=self.listen_notify_max_reconnect_interval,
+                max_reconnect_attempts=self.listen_notify_max_reconnect_attempts,
             )
             side_tasks.append(asyncio.create_task(listener_coro, name="listener"))
         return side_tasks

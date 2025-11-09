@@ -338,6 +338,27 @@ def configure_worker_parser(subparsers: argparse._SubParsersAction):
     )
     add_argument(
         worker_parser,
+        "--listen-notify-reconnect-interval",
+        type=float,
+        help="Initial delay (seconds) before reconnecting after listen/notify failure (default: 2.0)",
+        envvar="WORKER_LISTEN_NOTIFY_RECONNECT_INTERVAL",
+    )
+    add_argument(
+        worker_parser,
+        "--listen-notify-max-reconnect-interval",
+        type=float,
+        help="Maximum delay (seconds) between reconnection attempts (default: 60.0)",
+        envvar="WORKER_LISTEN_NOTIFY_MAX_RECONNECT_INTERVAL",
+    )
+    add_argument(
+        worker_parser,
+        "--listen-notify-max-reconnect-attempts",
+        type=int,
+        help="Maximum reconnection attempts before giving up; 0=unlimited (default: 0)",
+        envvar="WORKER_LISTEN_NOTIFY_MAX_RECONNECT_ATTEMPTS",
+    )
+    add_argument(
+        worker_parser,
         "--delete-jobs",
         choices=jobs.DeleteJobCondition,
         type=jobs.DeleteJobCondition,

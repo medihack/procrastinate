@@ -31,6 +31,9 @@ class WorkerOptions(TypedDict):
     abort_job_polling_interval: NotRequired[float]
     shutdown_graceful_timeout: NotRequired[float]
     listen_notify: NotRequired[bool]
+    listen_notify_reconnect_interval: NotRequired[float]
+    listen_notify_max_reconnect_interval: NotRequired[float]
+    listen_notify_max_reconnect_attempts: NotRequired[int]
     delete_jobs: NotRequired[str | jobs.DeleteJobCondition]
     additional_context: NotRequired[dict[str, Any]]
     install_signal_handlers: NotRequired[bool]
@@ -305,6 +308,18 @@ class App(blueprints.Blueprint):
             Provides lower latency for job updates compared to polling alone.
 
             Note: Worker polls the database regardless of this setting. (defaults to ``True``)
+        listen_notify_reconnect_interval : ``float``
+            Initial delay in seconds before reconnecting after a listen/notify connection failure.
+            Uses exponential backoff strategy with this as the starting interval.
+            (defaults to 2.0)
+        listen_notify_max_reconnect_interval : ``float``
+            Maximum delay in seconds between listen/notify reconnection attempts.
+            This caps the exponential backoff to prevent excessively long waits.
+            (defaults to 60.0)
+        listen_notify_max_reconnect_attempts : ``int``
+            Maximum number of listen/notify reconnection attempts before giving up.
+            A value of 0 means unlimited attempts (will keep trying indefinitely).
+            (defaults to 0, unlimited)
         delete_jobs : ``str``
             If ``always``, the worker will automatically delete all jobs on completion.
             If ``successful`` the worker will only delete successful jobs.

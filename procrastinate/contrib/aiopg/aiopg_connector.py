@@ -303,8 +303,34 @@ class AiopgConnector(connector.BaseAsyncConnector):
 
     @wrap_exceptions()
     async def listen_notify(
-        self, on_notification: connector.Notify, channels: Iterable[str]
+        self,
+        on_notification: connector.Notify,
+        channels: Iterable[str],
+        *,
+        reconnect_interval: float = 2.0,
+        max_reconnect_interval: float = 60.0,
+        max_reconnect_attempts: int = 0,
     ) -> None:
+        """
+        Listen for notifications on the specified channels.
+
+        This method automatically handles connection failures and reconnects with
+        exponential backoff. It will continue retrying until cancelled or until
+        max_reconnect_attempts is reached (if > 0).
+
+        Parameters
+        ----------
+        on_notification :
+            Callback to invoke when a notification is received
+        channels :
+            List of channel names to listen on
+        reconnect_interval :
+            Initial delay in seconds before reconnecting after a failure (default: 2.0)
+        max_reconnect_interval :
+            Maximum delay in seconds between reconnection attempts (default: 60.0)
+        max_reconnect_attempts :
+            Maximum number of reconnection attempts. 0 means unlimited. (default: 0)
+        """
         # We need to acquire a dedicated connection, and use the listen
         # query
         if self.pool.maxsize == 1:
@@ -315,8 +341,63 @@ class AiopgConnector(connector.BaseAsyncConnector):
             )
             return
 
+        backoff = reconnect_interval
+        attempt = 0
+
         while True:
-            async with self.pool.acquire() as connection:
+            # Check if we've exceeded max attempts
+            if max_reconnect_attempts > 0 and attempt >= max_reconnect_attempts:
+                logger.error(
+                    "Max reconnection attempts reached",
+                    extra={
+                        "action": "listen_notify_max_attempts",
+                        "attempts": attempt,
+                    },
+                )
+                raise exceptions.ConnectorException(
+                    f"Failed to establish listen/notify connection after {attempt} attempts"
+                )
+
+            connection = None
+            acquired = False
+
+            try:
+                # Stage 1: Acquire connection from pool
+                try:
+                    # Check pool health before attempting to acquire
+                    if self.pool.freesize == 0 and self.pool.size >= self.pool.maxsize:
+                        logger.warning(
+                            "Connection pool exhausted, waiting before retry",
+                            extra={
+                                "action": "listen_notify_pool_exhausted",
+                                "pool_size": self.pool.size,
+                                "pool_maxsize": self.pool.maxsize,
+                                "pool_freesize": self.pool.freesize,
+                            },
+                        )
+                        await asyncio.sleep(backoff)
+                        backoff = min(backoff * 2, max_reconnect_interval)
+                        attempt += 1
+                        continue
+
+                    connection = await self.pool.acquire()
+                    acquired = True
+                except psycopg2.OperationalError as exc:
+                    attempt += 1
+                    logger.warning(
+                        "Failed to acquire connection for listen/notify",
+                        extra={
+                            "action": "listen_notify_connection_failed",
+                            "error": str(exc),
+                            "attempt": attempt,
+                            "backoff": backoff,
+                        },
+                    )
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, max_reconnect_interval)
+                    continue
+
+                # Stage 2: Setup LISTEN commands
                 for channel_name in channels:
                     await self._execute_query_connection(
                         connection=connection,
@@ -324,9 +405,50 @@ class AiopgConnector(connector.BaseAsyncConnector):
                             query=sql.queries["listen_queue"], channel_name=channel_name
                         ),
                     )
+
+                # Stage 3: Successfully connected and set up, reset backoff
+                logger.info(
+                    "Listen/notify connection established",
+                    extra={
+                        "action": "listen_notify_connected",
+                        "channels": list(channels),
+                    },
+                )
+                backoff = reconnect_interval
+                attempt = 0
+
+                # Run the notification loop
                 await self._loop_notify(
                     on_notification=on_notification, connection=connection
                 )
+
+            except psycopg2.OperationalError as exc:
+                # Connection died during operation - this is expected, reconnect
+                attempt += 1
+                logger.info(
+                    "Connection lost during listen/notify, will reconnect",
+                    extra={
+                        "action": "listen_notify_connection_lost",
+                        "error": str(exc),
+                        "attempt": attempt,
+                        "backoff": backoff,
+                    },
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, max_reconnect_interval)
+            finally:
+                # Ensure connection is released back to pool
+                if connection is not None and acquired:
+                    try:
+                        self.pool.release(connection)
+                    except Exception as exc:
+                        logger.warning(
+                            "Error releasing listen/notify connection back to pool",
+                            extra={
+                                "action": "listen_notify_release_error",
+                                "error": str(exc),
+                            },
+                        )
 
     @wrap_exceptions()
     async def _loop_notify(
